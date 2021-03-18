@@ -1,0 +1,2 @@
+#!/bin/sh
+./venv/bin/ptpython -i repl.py
