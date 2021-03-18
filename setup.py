@@ -9,7 +9,9 @@ setup(
     description="",
     keywords=[],
     entry_points={
-        "console_scripts": [],
+        "console_scripts": [
+            "neurons-gui = neurons.gui:gui_main",
+        ],
     },
     install_requires=[],
     classifiers=[],
