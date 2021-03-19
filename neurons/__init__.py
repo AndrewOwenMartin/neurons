@@ -13,6 +13,17 @@ log.silent = functools.partial(log.log, 0)
 rng = random.Random()
 
 
+class Fiber(collections.deque):
+
+    str_template = "[{x}]"
+
+    def __str__(self):
+
+        return Fiber.str_template.format(
+            x=", ".join(format(x, ".2f") if x > 0 else " .  " for x in self)
+        )
+
+
 @dataclasses.dataclass
 class XY:
 
@@ -36,29 +47,42 @@ class XY:
 @dataclasses.dataclass
 class Node:
 
-    index: int
+    unique_id: int
     pos: XY = dataclasses.field(default_factory=XY, repr=True)
     energy: float = 0
     firing: bool = False
+    axon: typing.Optional["Nerve"] = None
+    output: int = 0
+    stimulation: int = 0
 
     def __repr__(self):
 
-        return f"Node(pos={self.pos}, energy={self.energy:3.2f}, firing={self.firing})"
+        return f"Node(id={self.unique_id} pos={self.pos}, energy={self.energy:3.2f}, firing={int(self.firing)}, axon={self.axon.myelin} -> {[target.unique_id for target in self.axon.target]})"
+
+    def __lt__(self, other):
+
+        return self.unique_id < other.unique_id
 
 
 @dataclasses.dataclass
 class Nerve:
 
+    unique_id: int
+    is_axon: bool = False
     length: int = dataclasses.field(default_factory=lambda: rng.randint(1, 10))
-    source: typing.Optional[Node] = None
-    target: typing.Optional[Node] = None
-    myelin: typing.Deque[float] = None
+    source: typing.Optional[typing.Union[Node, "Nerve"]] = None
+    target: typing.List[typing.Union[Node, "Nerve"]] = dataclasses.field(
+        default_factory=list
+    )
+    myelin: Fiber = None
+    output: int = 0
+    stimulation: int = 0
 
     def __post_init__(self):
 
         if self.myelin is None:
 
-            self.myelin = collections.deque([0] * self.length, maxlen=self.length)
+            self.myelin = Fiber([0] * self.length, maxlen=self.length)
 
         else:
 
@@ -66,9 +90,7 @@ class Nerve:
 
     def __repr__(self):
 
-        return (
-            f"Nerve({self.source.index} -> {list(self.myelin)} -> {self.target.index})"
-        )
+        return f"Nerve(name={self.unique_id}. {self.myelin} targets={[t.unique_id for t in self.target]})"
 
 
 @dataclasses.dataclass
@@ -109,10 +131,26 @@ def simulate(nodes, nerves, step_count=None):
     def do_firing():
 
         for node in nodes:
+            # Nodes put the stimulation in to their 'energy' battery
+            # Then if they're firing they
+            # - Set their output to 1 (or all their remaining energy)
+            # - Reduce their energy
+            # - Stop firing if energy is low
+            # If they're not firing they
+            # - Set their output to 0
+            # - Start firing if energy is high
+
+            node.energy += node.stimulation
+
+            node.stimulation = 0
 
             if node.firing:
 
-                node.energy *= 0.8
+                node.output = min(1, node.energy)
+
+                node.axon.stimulation += node.output * 0.5
+
+                node.energy -= node.output
 
                 if node.energy < 1:
 
@@ -120,9 +158,27 @@ def simulate(nodes, nerves, step_count=None):
 
             else:
 
-                if node.energy > 5:
+                node.output = 0
+
+                if node.energy > 3:
 
                     node.firing = True
+
+    def do_nerves():
+
+        for nerve in nerves:
+            # Nerves pop their rightmost energy as output
+            # Nerves push their stimulation.
+
+            nerve.output = nerve.myelin.pop()
+
+            nerve.myelin.appendleft(nerve.stimulation)
+
+            nerve.stimulation = 0
+
+            for target in nerve.target:
+
+                target.stimulation += nerve.output / len(nerve.target)
 
     if step_count:
 
@@ -140,41 +196,114 @@ def simulate(nodes, nerves, step_count=None):
 
         do_firing()
 
+        do_nerves()
+
         for node in nodes:
 
             print(node)
 
+        for nerve in nerves:
+
+            if not nerve.is_axon:
+
+                print(nerve)
+
         time.sleep(0.2)
+
+
+class Model:
+    def __init__(self):
+
+        self.nodes = []
+        self.nerves = []
+
+        self.unique_id_gen = itertools.count()
+
+    def add_node(self, axon_length=10):
+
+        new_nerve = self.add_nerve(length=axon_length, is_axon=True)
+
+        new_node = Node(
+            axon=new_nerve,
+            unique_id=next(self.unique_id_gen),
+        )
+
+        # new_nerve.source = new_node
+
+        self.nodes.append(new_node)
+
+        return new_node
+
+    def add_nerve(self, is_axon=False, source=None, target=None, length=10):
+
+        new_nerve = Nerve(
+            length=length,
+            unique_id=next(self.unique_id_gen),
+            is_axon=is_axon,
+        )
+
+        if source is not None:
+
+            if isinstance(source, Nerve):
+
+                source.target.append(new_nerve)
+                # new_nerve.source = source
+
+            elif isinstance(source, Node):
+
+                source.axon.target.append(new_nerve)
+                # new_nerve.source = source.axon
+
+        if target is not None:
+
+            if isinstance(target, (Nerve, Node)):
+
+                new_nerve.target.append(target)
+
+            else:
+
+                for item in target:
+
+                    new_nerve.target.append(item)
+
+        self.nerves.append(new_nerve)
+
+        return new_nerve
+
+    def attach(self, source, target):
+
+        if isinstance(source, Node):
+
+            source = source.axon
+
+        source.target.append(target)
+        # target.source = source
+
+    def simulate(self, step_count=None):
+
+        simulate(nodes=self.nodes, nerves=self.nerves, step_count=step_count)
 
 
 def main():
 
-    node_count = 10
-
-    nodes = [Node(index=x) for x in range(node_count)]
-
-    nerve_count = node_count
-
-    in2nerve = collections.defaultdict(list)
-    out2nerve = collections.defaultdict(list)
+    nodes = []
     nerves = []
 
-    for (source, target) in sorted(
-        rng.sample(list(itertools.permutations(range(node_count), 2)), nerve_count)
-    ):
+    model = Model()
 
-        nerve = Nerve(3, nodes[source], nodes[target])
+    node_1 = model.add_node()
 
-        in2nerve[source].append(nerve)
-        out2nerve[target].append(nerve)
+    nerve_2 = model.add_nerve(source=node_1, target=None)
 
-        nerves.append(nerve)
+    nerve_3 = model.add_nerve(source=nerve_2, target=None)
 
-    for nerve in nerves:
+    node_2 = model.add_node()
 
-        print(nerve)
+    model.attach(node_1, node_2)
 
-    simulate(nodes, nerves, step_count=2)
+    model.attach(node_2, nerve_2)
+
+    simulate(model.nodes, model.nerves, step_count=None)
 
 
 if __name__ == "__main__":
