@@ -1,38 +1,83 @@
+import collections, datetime, functools, itertools
+import json, logging, pathlib, random, re
+import neurons.model
 from dearpygui import core, simple
 from dearpygui.core import *
 from dearpygui.simple import *
 
+log = logging.getLogger(__name__)
+log.silent = functools.partial(log.log, 0)
 
-def save_callback(sender, data):
-    print("Save Clicked")
+rng = random.Random()
 
 
-def gui_main():
+def update_drawing(sender, data):
+    x = get_value("circleX")
+    y = get_value("circleY")
+    radi = get_value("radius")
+    col = get_value("color")
+    modify_draw_command(
+        "drawing##widget", "movingCircle", center=[x, y], radius=radi, color=col
+    )
 
-    for num in range(3):
 
-        with simple.window(f"Example Window {num:03}"):
-            core.add_text(f"Hello world {num:03}")
-            core.add_button(f"Save {num:03}", callback=save_callback)
-            core.add_input_text(f"string {num:03}")
-            core.add_slider_float(f"float {num:03}")
+def gui_main(model):
+    def show_state(sender, data):
 
-    with node_editor("Node Editor"):
+        print(model.jsonable_state)
 
-        with node("Node 1"):
+    def increment(sender, data):
 
-            with node_attribute("Node A1"):
-                add_input_float("F1", width=150)
+        model.simulate(step_count=1)
 
-            with node_attribute("Node A2", output=True):
-                add_input_float("F2", width=150)
+    with simple.window(
+        f"Main Window",
+    ):
 
-        with node("Node 2##demo"):
+        add_drawing("drawing##widget", width=800, height=600)
 
-            with node_attribute("Node A3"):
-                add_input_float("F3", width=200)
+        draw_circle(
+            "drawing##widget",
+            [100, 100],
+            50,
+            [0, 255, 255, 255],
+            tag="bumCircle",
+        )
 
-            with node_attribute("Node A4", output=True):
-                add_input_float("F4", width=200)
+        for node in model.nodes:
 
-    core.start_dearpygui()
+            draw_circle(
+                "drawing##widget",
+                [node.pos.x * 800, node.pos.y * 600],
+                50,
+                [0, 255, 255, 255],
+                tag=f"myCircle{node.unique_id}",
+            )
+
+    with simple.window("mini window"):
+        core.add_text(f"Hello world")
+
+        core.add_button(f"Show state", callback=show_state)
+
+        core.add_button(f"Increment", callback=increment)
+
+    core.start_dearpygui(primary_window="Main Window")
+
+
+def main():
+
+    model = neurons.model.get_default_model()
+
+    gui_main(model)
+
+
+if __name__ == "__main__":
+
+    logging.basicConfig(
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        format="%(asctime)s %(levelname)-4s %(name)s %(message)s",
+        style="%",
+    )
+
+    main()

@@ -63,6 +63,19 @@ class Node:
 
         return self.unique_id < other.unique_id
 
+    @property
+    def jsonable_state(self):
+
+        return {
+            "unique_id": self.unique_id,
+            "pos": list(self.pos),
+            "energy": self.energy,
+            "firing": int(self.firing),
+            "axon": self.axon.unique_id,
+            "output": self.output,
+            "stimulation": self.stimulation,
+        }
+
 
 @dataclasses.dataclass
 class Nerve:
@@ -87,6 +100,19 @@ class Nerve:
         else:
 
             self.length = self.myelin.maxlen
+
+    @property
+    def jsonable_state(self):
+
+        return {
+            "unique_id": self.unique_id,
+            "is_axon": self.is_axon,
+            "length": self.length,
+            "target": [t.unique_id for t in self.target],
+            "myelin": list(self.myelin),
+            "output": self.output,
+            "stimulation": self.stimulation,
+        }
 
     def __repr__(self):
 
@@ -283,11 +309,16 @@ class Model:
 
         simulate(nodes=self.nodes, nerves=self.nerves, step_count=step_count)
 
+    @property
+    def jsonable_state(self):
 
-def main():
+        return {
+            "nodes": [node.jsonable_state for node in self.nodes],
+            "nerves": [nerve.jsonable_state for nerve in self.nerves],
+        }
 
-    nodes = []
-    nerves = []
+
+def get_default_model():
 
     model = Model()
 
@@ -302,6 +333,13 @@ def main():
     model.attach(node_1, node_2)
 
     model.attach(node_2, nerve_2)
+
+    return model
+
+
+def main():
+
+    model = get_default_model()
 
     simulate(model.nodes, model.nerves, step_count=None)
 
