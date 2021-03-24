@@ -3,6 +3,8 @@
 - [doc](./doc/)
 - [res](./res/)
 
+![Example network animation](./res/simple-network-example.mp4)
+
 ## Verbose description.
 
 This is copy-pasted directly from the [Dear PyGui Discord](https://discord.gg/JQDPD8Vd), in response to the question "Curious to see what your project will become. What are developing?".
