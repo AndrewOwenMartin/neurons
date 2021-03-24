@@ -56,7 +56,7 @@ def render(model):
 
     for node in model.nodes:
 
-        energy = node.energy * 0.33
+        energy = node.energy * 0.1
 
         if node.firing:
 
@@ -92,15 +92,26 @@ def render(model):
 def gui_main(model):
     def show_state(sender, data):
 
-        model.nodes[0].energy += 3
-
         print(model.jsonable_state)
+
+    def show_neurons(sender, data):
+
+        model_state = model.jsonable_state
+
+        node_dicts = [
+            {
+                "name": node["unique_id"],
+                "firing": node["firing"],
+                "energy": format(node["energy"], "0.2f"),
+            }
+            for node in model_state["nodes"]
+        ]
+
+        print("\n".join(str(x) for x in node_dicts))
 
     def increment(sender, data):
 
-        model.simulate(step_count=1)
-
-        render(model)
+        print("increment does not work, put in a 1s alternative")
 
     dim = (800, 600)
 
@@ -149,16 +160,20 @@ def gui_main(model):
                 tag=f"myCircle{node.unique_id}",
             )
 
-    with simple.window("Controls"):
+    with simple.window("Controls", x_pos=350, y_pos=230, height=120):
         core.add_text(f"Interact with the model.")
 
         core.add_button(f"Log state", callback=show_state)
+
+        core.add_button(f"Log neurons", callback=show_neurons)
 
         core.add_button(f"Step model", callback=increment)
 
     def my_render():
 
-        model.simulate(step_count=1)
+        dt = core.get_delta_time()
+
+        model.advance(dt=dt * 20)
 
         render(model)
 
@@ -170,7 +185,7 @@ def gui_main(model):
 
 def main():
 
-    model = neurons.model.get_default_model_002()
+    model = neurons.model.get_default_model_003()
 
     gui_main(model)
 

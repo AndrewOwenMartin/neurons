@@ -13,7 +13,10 @@ setup(
             "neurons-gui = neurons.gui:gui_main",
         ],
     },
-    install_requires=[],
+    install_requires=[
+        "numpy",
+        "dearpygui",
+    ],
     classifiers=[],
     author="Andrew Owen Martin",
     author_email="andrew@aomartin.co.uk",

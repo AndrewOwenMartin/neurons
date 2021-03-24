@@ -5,6 +5,7 @@ import numpy as np
 import math
 import time
 import typing
+from timeit import default_timer as timer
 
 
 log = logging.getLogger(__name__)
@@ -124,6 +125,7 @@ class Nerve:
     stimulation: int = 0
     pos: XY = dataclasses.field(default_factory=XY, repr=True)
     weights: typing.List[float] = dataclasses.field(default_factory=list)
+    clock: float = 0
 
     def __post_init__(self):
 
@@ -160,11 +162,13 @@ class FreeEnergy:
     mag: float = 1
 
 
-def simulate(nodes, nerves, step_count=None):
+def simulate(nodes, nerves, max_run_time):
 
-    free_energy_per_tick = 1
+    free_energy_per_second = 0.2
     distance_decay = 2
     distance_scale = 10
+    neuron_output_per_second = 1
+    nerve_propogation_time = 1
 
     def decay(distance):
 
@@ -176,7 +180,7 @@ def simulate(nodes, nerves, step_count=None):
 
     def do_free_energy():
 
-        free_energy_count = np.random.poisson(free_energy_per_tick, 1)[0]
+        free_energy_count = np.random.poisson(free_energy_per_second * dt, 1)[0]
 
         free_energy_gen = (FreeEnergy() for num in range(free_energy_count))
 
@@ -211,7 +215,7 @@ def simulate(nodes, nerves, step_count=None):
 
             if node.firing:
 
-                node.output = min(1, node.energy)
+                node.output = min(neuron_output_per_second * dt, node.energy)
 
                 node.axon.stimulation += node.output
 
@@ -228,42 +232,76 @@ def simulate(nodes, nerves, step_count=None):
     def do_nerves():
 
         for nerve in nerves:
-            # Nerves pop their rightmost energy as output
-            # Nerves push their stimulation.
 
-            nerve.output = nerve.myelin.pop()
+            if nerve.clock > nerve_propogation_time:
 
-            nerve.myelin.appendleft(nerve.stimulation)
+                # Once per second
+                # Nerves pop their rightmost energy as output
+                # Nerves push their stimulation.
+                nerve.output = nerve.myelin.pop()
+
+                nerve.myelin.appendleft(0)
+
+                nerve.clock -= nerve_propogation_time
+
+                for target, weight in zip(nerve.target, nerve.weights):
+
+                    new_stim = (nerve.output * weight) / len(nerve.target)
+
+                    log.silent(
+                        "%s -> %s. stim: (%.2f * %.2f)/%s = %s",
+                        nerve.unique_id,
+                        target.unique_id,
+                        nerve.output,
+                        weight,
+                        len(nerve.target),
+                        new_stim,
+                    )
+
+                    target.stimulation += new_stim
+
+            else:
+
+                nerve.output = 0
+
+            # Every tick
+            # Stimulate the leftmost cell
+            # Reset stimulation
+            nerve.myelin[0] += nerve.stimulation
 
             nerve.stimulation = 0
 
-            for target, weight in zip(nerve.target, nerve.weights):
+            nerve.clock += dt
 
-                new_stim = (nerve.output * weight) / len(nerve.target)
+    start = timer()
 
-                log.silent(
-                    "%s -> %s. stim: (%.2f * %.2f)/%s = %s",
-                    nerve.unique_id,
-                    target.unique_id,
-                    nerve.output,
-                    weight,
-                    len(nerve.target),
-                    new_stim,
-                )
+    if max_run_time:
 
-                target.stimulation += new_stim
+        def still_run():
 
-    if step_count:
+            while True:
 
-        step_gen = range(step_count)
+                run_time = timer() - start
+
+                yield run_time
+
+                if run_time > max_run_time:
+
+                    break
+
+        finished = get_finished()
 
     else:
 
-        step_gen = itertools.count(start=0)
+        def still_run():
 
-    for step_num in step_gen:
+            while True:
 
-        log.silent("\nstep %s", step_num)
+                yield timer() - start
+
+    for total_time in still_run():
+
+        log.silent("%s", total_time)
 
         do_free_energy()
 
@@ -285,6 +323,16 @@ def simulate(nodes, nerves, step_count=None):
 
 
 class Model:
+
+    free_energy_per_second = 1
+    distance_decay = 2  # 2 = Inverse squared law
+    distance_scale = 10  # Power of a unit distance, E.g. how far away x=0  and x=1 are
+    neuron_output_per_second = 5
+    nerve_propogation_time = 1
+    energy_stop_firing_threshold = 1
+    energy_start_firing_threshold = 5
+    axon_inefficiency = 1
+
     def __init__(self):
 
         self.nodes = []
@@ -292,9 +340,36 @@ class Model:
 
         self.unique_id_gen = itertools.count()
 
-    def add_node(self, axon_length=10, unique_id=None):
+        self.advance = functools.partial(
+            Model.generic_advance,
+            advance_free_energy=functools.partial(
+                Model.generic_advance_free_energy,
+                nodes=self.nodes,
+                free_energy_per_second=Model.free_energy_per_second,
+                get_decay=functools.partial(
+                    Model.generic_get_decay,
+                    distance_scale=Model.distance_scale,
+                    distance_decay=Model.distance_decay,
+                ),
+            ),
+            advance_nodes=functools.partial(
+                Model.generic_advance_nodes,
+                nodes=self.nodes,
+                energy_start_firing_threshold=Model.energy_start_firing_threshold,
+                energy_stop_firing_threshold=Model.energy_stop_firing_threshold,
+                neuron_output_per_second=Model.neuron_output_per_second,
+                axon_inefficiency=Model.axon_inefficiency,
+            ),
+            advance_nerves=functools.partial(
+                Model.generic_advance_nerves,
+                nerves=self.nerves,
+                nerve_propogation_time=Model.nerve_propogation_time,
+            ),
+        )
 
-        new_nerve = self.add_nerve(length=axon_length, is_axon=True)
+    def add_node(self, axon_length=10, unique_id=None, pos=None):
+
+        new_nerve = self.add_nerve(length=axon_length, is_axon=True, pos=pos)
 
         if unique_id is None:
 
@@ -305,6 +380,10 @@ class Model:
             unique_id=unique_id,
         )
 
+        if pos:
+
+            new_node.pos = pos
+
         # new_nerve.source = new_node
 
         self.nodes.append(new_node)
@@ -312,7 +391,13 @@ class Model:
         return new_node
 
     def add_nerve(
-        self, is_axon=False, source=None, target=None, length=10, unique_id=None
+        self,
+        is_axon=False,
+        source=None,
+        target=None,
+        length=10,
+        unique_id=None,
+        pos=None,
     ):
 
         if unique_id is None:
@@ -324,6 +409,10 @@ class Model:
             unique_id=unique_id,
             is_axon=is_axon,
         )
+
+        if pos:
+
+            new_nerve.pos = pos
 
         if source is not None:
 
@@ -363,9 +452,103 @@ class Model:
         source.weights.append(weight)
         # target.source = source
 
-    def simulate(self, step_count=None):
+    def generic_get_decay(distance, distance_scale, distance_decay):
 
-        simulate(nodes=self.nodes, nerves=self.nerves, step_count=step_count)
+        dropoff = 1 / pow((distance * distance_scale) + 1, distance_decay)
+
+        return dropoff
+
+    def generic_advance_free_energy(dt, nodes, free_energy_per_second, get_decay):
+
+        free_energy_count = np.random.poisson(free_energy_per_second * dt, 1)[0]
+
+        free_energy_gen = (FreeEnergy() for num in range(free_energy_count))
+
+        for free_energy in free_energy_gen:
+
+            for node in nodes:
+
+                distance = XY.distance(node.pos, free_energy.pos)
+
+                node.energy += free_energy.mag * get_decay(distance)
+
+    def generic_advance_nodes(
+        dt,
+        nodes,
+        energy_start_firing_threshold,
+        energy_stop_firing_threshold,
+        neuron_output_per_second,
+        axon_inefficiency,
+    ):
+
+        for node in nodes:
+            # Nodes start firing if not firing and energy is high
+            # Nodes stop firing if firing and energy is low
+            # Then if they're firing they
+            # - Set their output to 1 (or all their remaining energy)
+            # - Stimulate their axon by a slightly reduces weight
+            # - Reduce their energy
+            # If they're not firing they
+            # - Put the stimulation in to their 'energy' battery
+            # - Empty their stimulation
+            # - Set their output to 0
+            if not node.firing and node.energy > energy_start_firing_threshold:
+
+                node.firing = True
+
+            elif node.firing and node.energy < energy_stop_firing_threshold:
+
+                node.firing = False
+
+            if node.firing:
+
+                node.output = min(neuron_output_per_second * dt, node.energy)
+
+                node.axon.stimulation += node.output * axon_inefficiency
+
+                node.energy -= node.output
+
+            else:
+
+                node.energy = max(0, node.energy + node.stimulation)
+
+                node.output = 0
+
+            node.stimulation = 0
+
+    def generic_advance_nerves(dt, nerves, nerve_propogation_time):
+
+        for nerve in nerves:
+
+            if nerve.clock > nerve_propogation_time:
+
+                # Once per second
+                # Nerves pop their rightmost energy as output
+                # Nerves push their stimulation.
+                nerve.output = nerve.myelin.pop()
+
+                nerve.myelin.appendleft(0)
+
+                nerve.clock -= nerve_propogation_time
+
+                for target, weight in zip(nerve.target, nerve.weights):
+
+                    new_stim = (nerve.output * weight) / len(nerve.target)
+
+                    target.stimulation += new_stim
+
+            else:
+
+                nerve.output = 0
+
+            # Every tick
+            # Stimulate the leftmost cell
+            # Reset stimulation
+            nerve.myelin[0] += nerve.stimulation
+
+            nerve.stimulation = 0
+
+            nerve.clock += dt
 
     @property
     def jsonable_state(self):
@@ -374,6 +557,12 @@ class Model:
             "nodes": [node.jsonable_state for node in self.nodes],
             "nerves": [nerve.jsonable_state for nerve in self.nerves],
         }
+
+    def generic_advance(dt, advance_free_energy, advance_nodes, advance_nerves):
+
+        advance_free_energy(dt)
+        advance_nodes(dt)
+        advance_nerves(dt)
 
 
 def get_default_model():
@@ -399,8 +588,6 @@ def get_default_model_002():
 
     model = Model()
 
-    nodes = [model.add_node(unique_id=f"node{num}") for num in range(4)]
-
     pos_list = [
         XY(*pos)
         for pos in [
@@ -408,8 +595,11 @@ def get_default_model_002():
             (0.5, 1 - 0.2),
             (0.9, 1 - 0.8),
             (0.9, 1 - 0.4),
+            (0.3, 1 - 0.5),
         ]
     ]
+
+    nodes = [model.add_node(unique_id=f"node{num}") for num in range(len(pos_list))]
 
     for node, pos in zip(nodes, pos_list):
 
@@ -438,6 +628,47 @@ def get_default_model_002():
     model.attach(nerves[2], nodes[2])
     model.attach(nodes[3], nerves[3])
     model.attach(nerves[3], nodes[1], weight=0.1)
+    model.attach(nodes[4], nodes[0])
+    model.attach(nodes[1], nodes[4])
+
+    return model
+
+
+def get_default_model_003():
+
+    obj_defs = {
+        "0": ("node", XY(0.25, 0.2), [("1", 1)]),
+        "1": ("node", XY(0.75, 0.2), [("3", 1)]),
+        "2": ("node", XY(0.25, 0.6), [("n0", 1)]),
+        "3": ("node", XY(0.75, 0.6), [("4", 1)]),
+        "4": ("node", XY(0.25, 0.85), [("n1", 1)]),
+        "5": ("node", XY(0.75, 0.85), [("n2", 1)]),
+        "n0": ("nerve", XY(0.5, 0.25), [("0", 1), ("1", 1)]),
+        "n1": ("nerve", XY(0.5, 0.75), [("5", -1)]),
+        "n2": ("nerve", XY(0.5, 0.95), [("4", -1)]),
+    }
+
+    name2obj = {}
+
+    model = Model()
+
+    for obj_name, (obj_type, pos, targets) in obj_defs.items():
+
+        adder = model.add_node if obj_type == "node" else model.add_nerve
+
+        obj = adder(unique_id=obj_name, pos=pos)
+
+        name2obj[obj_name] = obj
+
+    for obj_name, (obj_type, pos, targets) in obj_defs.items():
+
+        origin_obj = name2obj[obj_name]
+
+        for target_name, weight in targets:
+
+            target_obj = name2obj[target_name]
+
+            model.attach(origin_obj, target_obj, weight=weight)
 
     return model
 
