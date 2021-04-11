@@ -1,9 +1,27 @@
 # neurons project
 
-- [doc](./doc/)
+- Inspired by [Referential communication as a collective property of a brain-body-environment-body-brain system: A minimal cognitive model](./doc/campos2017.pdf)
 - [res](./res/)
 
 ![Example network animation](./res/simple-network-example.mp4)
+![Minimal Network](./doc/screenshots/019.png)
+
+## Introduction
+
+This is an attempt to combine Freeman's observations of real-time neurodynamics [1] with Campos and Froese's work in minimal cognition [2].
+
+Freeman describes a neural network as being defined less as a set of weights, but more as a set of steady states of activity in a dynamical phase space,each steady state effectively implementing a feed forward neural network appropriate for the current situation.
+In this sense stimulation performs the dual role of either inducing action, or inducing a change in the steady state such that the network is always attuned to the context.
+Campos and Froese, independent of Freeman, demonstrate that with a simple three-neuron real-time dynamic neural network that communication,representation and the adopting of roles, may emerge when two instances of the network with identical weights are allowed to interact in an environment.
+I believe that the algorithm investigated in my thesis, Stochastic Diffusion Search, is a suitable model for developing, modelling and analysing the real-time dynamics of such a system.
+The forms of real-time, environmental and context sensitive behaviour described in these sources are exactly the kinds of dynamics that traditional Artificial Intelligence projects have been criticised for lacking by philosophers of the Continental tradition such as Dreyfus, H. [3] and Wheeler, M. [4].
+
+Such an investigation will provide empirical evidence towards the long standing critiques of AI, whether the evidence is in support of them, or contrary to them remains to be seen.
+
+1. Freeman, Walter J. How brains make up their minds. Columbia University Press, 2000.
+1. Campos, Jorge I., and Tom Froese. “Referential communication as a collective property of a brain-body-environment-body-brain system: a minimal cognitive model.”2017 IEEE Symposium Series on Computational Intelligence (SSCI). IEEE, 2017.
+1. Dreyfus, Hubert L., and L. Hubert.What computers still can't do: A critique of artificial reason. MIT press, 1992.
+1. Wheeler, Michael.Reconstructing the cognitive world: The next step. MIT press, 2005.
 
 ## Verbose description.
 

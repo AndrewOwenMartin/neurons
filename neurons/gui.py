@@ -1,8 +1,10 @@
 import collections, datetime, functools, itertools
 import json, logging, pathlib, random, re
 import neurons.model
+import neurons.config
 
-# from dearpygui import core, simple
+config = neurons.config.load()
+
 import dearpygui.core as core
 import dearpygui.simple as simple
 
@@ -11,35 +13,29 @@ log.silent = functools.partial(log.log, 0)
 
 rng = random.Random()
 
-node_firing_fill = [255, 0, 0, 255]
-node_not_firing_fill = [0, 128, 128, 255]
+nerve_off_color = config["colors"].getColor("nerve off")
+nerve_on_color = config["colors"].getColor("nerve on")
+node_off_color = config["colors"].getColor("node off")
+node_firing_color = config["colors"].getColor("node firing")
+node_charging_color = config["colors"].getColor("node charging")
+
+
+def interpolate_color(start, end, factor):
+
+    return [int(s + factor * (e + s)) for s, e in zip(start, end)]
 
 
 def draw_nerve(nerve, target_pos, window_scale, tag):
-
-    nerve_color = [0, 255, 255, 255]
 
     segment_gen = nerve.pos.segmentize(target_pos, nerve.length)
 
     for segment_num, (start_pos, target_pos) in enumerate(segment_gen):
 
-        log.silent("drawing nerve segment %s-%03s", tag, segment_num)
-
-        foo = bool(rng.randint(0, 1))
-
-        if foo:
-
-            nerve_color = node_firing_fill
-
-        else:
-
-            nerve_color = node_not_firing_fill
-
         core.draw_line(
             drawing="drawing##widget",
             p1=window_scale(start_pos),
             p2=window_scale(target_pos),
-            color=nerve_color,
+            color=nerve_off_color,
             thickness=1,
             tag=f"{tag}-segment-{segment_num:03}",
         )
@@ -50,27 +46,74 @@ def scale(vec, dim):
     return [x * y for x, y in zip(vec, dim)]
 
 
-def render(model):
+def render(model, window_scale, dim):
 
-    # print("rendering")
+    # for num, free_energy in enumerate(model.free_energies):
 
-    for node in model.nodes:
+    #    #core.modify_draw_command(
+    #    #    "drawing##widget",
+    #    #    f"freeEnergy{num}",
+    #    #    center=window_scale(free_energy.pos),
+    #    #    radius=min(dim) * 0.1 * free_energy.mag,
+    #    #)
 
-        energy = node.energy * 0.1
+    #    log.info("draw free energy#%s", num)
+    for num, free_energy in enumerate(model.free_energies):
 
-        if node.firing:
+        if free_energy is None:
 
-            node_color = [255 * energy, 0, 0, 255]
+            continue
+
+        tag = f"freeEnergy{num}"
+
+        if free_energy.mag < 0 and free_energy.drawn:
+
+            log.info("deleting %s", tag)
+
+            core.delete_draw_command("drawing##widget", tag)
 
         else:
 
-            col = 255 * energy
+            if free_energy.drawn:
 
-            node_color = [col, col, 0, 255]
+                core.modify_draw_command(
+                    "drawing##widget",
+                    tag,
+                    # center=window_scale(free_energy.pos),
+                    radius=20 * free_energy.mag,
+                )
+
+            else:
+
+                core.draw_circle(
+                    "drawing##widget",
+                    center=window_scale(free_energy.pos),
+                    # radius=min(dim) * 0.1 * free_energy.mag,
+                    radius=20 * max(0, 1 / free_energy.mag),
+                    color=[255, 0, 0],
+                    fill=[255, 0, 0],
+                    tag=tag,
+                )
+
+                free_energy.drawn = True
+
+    for node in model.nodes:
+
+        energy = node.energy / model.energy_start_firing_threshold
+
+        if node.firing:
+
+            node_color = interpolate_color(node_off_color, node_firing_color, energy)
+
+        else:
+
+            node_color = interpolate_color(node_off_color, node_charging_color, energy)
+
+        tag = f"myCircle{node.unique_id}"
 
         core.modify_draw_command(
             "drawing##widget",
-            f"myCircle{node.unique_id}",
+            tag,
             fill=node_color,
         )
 
@@ -78,9 +121,11 @@ def render(model):
 
         for target in nerve.target:
 
-            for segment_num, segment in enumerate(nerve.myelin):
+            for segment_num, energy in enumerate(nerve.myelin):
 
-                nerve_color = [255, 255 * segment, 255, 255]
+                nerve_color = interpolate_color(
+                    nerve_off_color, nerve_on_color, energy / 5
+                )
 
                 core.modify_draw_command(
                     "drawing##widget",
@@ -90,9 +135,20 @@ def render(model):
 
 
 def gui_main(model):
+
+    dim = (800, 600)
+
+    window_scale = functools.partial(scale, dim=dim)
+
     def show_state(sender, data):
 
         print(model.jsonable_state)
+
+    def show_free_energies(sender, data):
+
+        print(
+            [(num, fe) for num, fe in enumerate(model.free_energies) if fe is not None]
+        )
 
     def show_neurons(sender, data):
 
@@ -112,10 +168,6 @@ def gui_main(model):
     def increment(sender, data):
 
         print("increment does not work, put in a 1s alternative")
-
-    dim = (800, 600)
-
-    window_scale = functools.partial(scale, dim=dim)
 
     # window_size = [int(x) for x in scale(dim, (1.1, 1.1))]
 
@@ -137,6 +189,23 @@ def gui_main(model):
             pmax=list(dim),
             color=[255, 255, 255, 255],
         )
+
+        for num, free_energy in enumerate(model.free_energies):
+
+            if free_energy is None:
+
+                continue
+
+            core.draw_circle(
+                "drawing##widget",
+                window_scale(free_energy.pos),
+                min(dim) * 0.1 * free_energy.mag,
+                color=[255, 0, 0],
+                fill=[255, 0, 0],
+                tag=f"freeEnergy{num}",
+            )
+
+            log.info("drawing fe")
 
         for nerve in model.nerves:
 
@@ -169,13 +238,15 @@ def gui_main(model):
 
         core.add_button(f"Step model", callback=increment)
 
+        core.add_button(f"Show free energies", callback=show_free_energies)
+
     def my_render():
 
         dt = core.get_delta_time()
 
-        model.advance(dt=dt * 20)
+        model.advance(dt=dt)
 
-        render(model)
+        render(model, window_scale, dim)
 
     core.set_render_callback(my_render)
     core.set_vsync(True)
@@ -186,6 +257,10 @@ def gui_main(model):
 def main():
 
     model = neurons.model.get_default_model_003()
+
+    for node in model.nodes:
+
+        node.energy = rng.uniform(0, model.energy_start_firing_threshold)
 
     gui_main(model)
 

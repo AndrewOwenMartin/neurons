@@ -18,7 +18,11 @@ config_file_paths = (
 
 def load():
 
-    config_parser = configparser.ConfigParser()
+    config_parser = configparser.ConfigParser(
+        converters={
+            "Color": lambda s: json.loads(s),
+        }
+    )
 
     for config_file_path in config_file_paths:
 

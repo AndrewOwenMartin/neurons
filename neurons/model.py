@@ -160,171 +160,12 @@ class FreeEnergy:
 
     pos: XY = dataclasses.field(default_factory=XY, repr=True)
     mag: float = 1
-
-
-def simulate(nodes, nerves, max_run_time):
-
-    free_energy_per_second = 0.2
-    distance_decay = 2
-    distance_scale = 10
-    neuron_output_per_second = 1
-    nerve_propogation_time = 1
-
-    def decay(distance):
-
-        dropoff = 1 / pow((distance * distance_scale) + 1, distance_decay)
-
-        log.silent("dropoff for distance %.3f is %.3f", distance, dropoff)
-
-        return dropoff
-
-    def do_free_energy():
-
-        free_energy_count = np.random.poisson(free_energy_per_second * dt, 1)[0]
-
-        free_energy_gen = (FreeEnergy() for num in range(free_energy_count))
-
-        for free_energy in free_energy_gen:
-
-            for node in nodes:
-
-                distance = XY.distance(node.pos, free_energy.pos)
-
-                node.energy += free_energy.mag * decay(distance)
-
-    def do_firing():
-
-        for node in nodes:
-            # Nodes start firing if not firing and energy is high
-            # Nodes stop firing if firing and energy is low
-            # Then if they're firing they
-            # - Set their output to 1 (or all their remaining energy)
-            # - Stimulate their axon by a slightly reduces weight
-            # - Reduce their energy
-            # If they're not firing they
-            # - Put the stimulation in to their 'energy' battery
-            # - Empty their stimulation
-            # - Set their output to 0
-            if not node.firing and node.energy > 3:
-
-                node.firing = True
-
-            elif node.firing and node.energy < 1:
-
-                node.firing = False
-
-            if node.firing:
-
-                node.output = min(neuron_output_per_second * dt, node.energy)
-
-                node.axon.stimulation += node.output
-
-                node.energy -= node.output
-
-            else:
-
-                node.energy += node.stimulation
-
-                node.stimulation = 0
-
-                node.output = 0
-
-    def do_nerves():
-
-        for nerve in nerves:
-
-            if nerve.clock > nerve_propogation_time:
-
-                # Once per second
-                # Nerves pop their rightmost energy as output
-                # Nerves push their stimulation.
-                nerve.output = nerve.myelin.pop()
-
-                nerve.myelin.appendleft(0)
-
-                nerve.clock -= nerve_propogation_time
-
-                for target, weight in zip(nerve.target, nerve.weights):
-
-                    new_stim = (nerve.output * weight) / len(nerve.target)
-
-                    log.silent(
-                        "%s -> %s. stim: (%.2f * %.2f)/%s = %s",
-                        nerve.unique_id,
-                        target.unique_id,
-                        nerve.output,
-                        weight,
-                        len(nerve.target),
-                        new_stim,
-                    )
-
-                    target.stimulation += new_stim
-
-            else:
-
-                nerve.output = 0
-
-            # Every tick
-            # Stimulate the leftmost cell
-            # Reset stimulation
-            nerve.myelin[0] += nerve.stimulation
-
-            nerve.stimulation = 0
-
-            nerve.clock += dt
-
-    start = timer()
-
-    if max_run_time:
-
-        def still_run():
-
-            while True:
-
-                run_time = timer() - start
-
-                yield run_time
-
-                if run_time > max_run_time:
-
-                    break
-
-        finished = get_finished()
-
-    else:
-
-        def still_run():
-
-            while True:
-
-                yield timer() - start
-
-    for total_time in still_run():
-
-        log.silent("%s", total_time)
-
-        do_free_energy()
-
-        do_firing()
-
-        do_nerves()
-
-        # for node in nodes:
-
-        #    print(node)
-
-        # for nerve in nerves:
-
-        #    if not nerve.is_axon:
-
-        #        print(nerve)
-
-        # time.sleep(0.2)
+    drawn: bool = False
 
 
 class Model:
 
-    free_energy_per_second = 1
+    free_energy_per_second = 20
     distance_decay = 2  # 2 = Inverse squared law
     distance_scale = 10  # Power of a unit distance, E.g. how far away x=0  and x=1 are
     neuron_output_per_second = 5
@@ -337,6 +178,7 @@ class Model:
 
         self.nodes = []
         self.nerves = []
+        self.free_energies = [None] * Model.free_energy_per_second * 2
 
         self.unique_id_gen = itertools.count()
 
@@ -345,6 +187,7 @@ class Model:
             advance_free_energy=functools.partial(
                 Model.generic_advance_free_energy,
                 nodes=self.nodes,
+                free_energies=self.free_energies,
                 free_energy_per_second=Model.free_energy_per_second,
                 get_decay=functools.partial(
                     Model.generic_get_decay,
@@ -458,19 +301,45 @@ class Model:
 
         return dropoff
 
-    def generic_advance_free_energy(dt, nodes, free_energy_per_second, get_decay):
+    def generic_advance_free_energy(
+        dt, nodes, free_energies, free_energy_per_second, get_decay
+    ):
+        def get_dead_indices(free_energies, dt):
+
+            for num, free_energy in enumerate(free_energies):
+
+                if free_energy is None or free_energy.mag < 0:
+                    # if free_energy is None:
+
+                    yield num
+
+                if free_energy is not None:
+
+                    free_energy.mag -= dt
+
+                    log.info("fe now %s", free_energy.mag)
+
+        dead_indices = list(get_dead_indices(free_energies, dt))
 
         free_energy_count = np.random.poisson(free_energy_per_second * dt, 1)[0]
 
-        free_energy_gen = (FreeEnergy() for num in range(free_energy_count))
+        for new_free_energy_num, free_index in zip(
+            range(free_energy_count), dead_indices
+        ):
 
-        for free_energy in free_energy_gen:
+            new_free_energy = FreeEnergy()
+
+            free_energies[free_index] = new_free_energy
+
+            pos = new_free_energy.pos
+
+            mag = new_free_energy.mag
 
             for node in nodes:
 
-                distance = XY.distance(node.pos, free_energy.pos)
+                distance = XY.distance(node.pos, pos)
 
-                node.energy += free_energy.mag * get_decay(distance)
+                node.energy += mag * get_decay(distance)
 
     def generic_advance_nodes(
         dt,
@@ -505,6 +374,8 @@ class Model:
                 node.output = min(neuron_output_per_second * dt, node.energy)
 
                 node.axon.stimulation += node.output * axon_inefficiency
+
+                # log.info("node axon stim: %s (dt=%s)", node.axon.stimulation, dt)
 
                 node.energy -= node.output
 
