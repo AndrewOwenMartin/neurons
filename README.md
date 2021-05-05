@@ -1,5 +1,7 @@
 # neurons project
 
+Run with `python -m neurons.gui`, also try `python -m unittest neurons.test_world`.
+
 - Inspired by [Referential communication as a collective property of a brain-body-environment-body-brain system: A minimal cognitive model](./doc/campos2017.pdf)
 - [res](./res/)
 
