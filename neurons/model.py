@@ -6,6 +6,8 @@ import math
 import time
 import typing
 from timeit import default_timer as timer
+from neurons.fiber import Fiber
+
 
 
 log = logging.getLogger(__name__)
@@ -14,149 +16,13 @@ log.silent = functools.partial(log.log, 0)
 rng = random.Random()
 
 
-class Fiber(collections.deque):
-
-    str_template = "[{x}]"
-
-    def __str__(self):
-
-        return Fiber.str_template.format(
-            x=", ".join(format(x, ".2f") if x > 0 else " .  " for x in self)
-        )
-
-
-@dataclasses.dataclass
-class XY:
-
-    x: float = dataclasses.field(default_factory=rng.random)
-    y: float = dataclasses.field(default_factory=rng.random)
-
-    def __repr__(self):
-
-        return f"XY({self.x:3.2f}, {self.y:3.2f})"
-
-    def distance(a, b):
-
-        return math.sqrt(sum((a_elem - b_elem) ** 2 for a_elem, b_elem in zip(a, b)))
-
-    def __iter__(self):
-
-        yield self.x
-        yield self.y
-
-    def get_delta(self, target):
-
-        return XY(
-            *(
-                target_element - self_element
-                for self_element, target_element in zip(self, target)
-            )
-        )
-
-    def segmentize(self, target, segment_count):
-
-        if segment_count == 1:
-
-            return [(self, target)]
-
-        delta = self.get_delta(target)
-
-        segment_start = self
-        segment_end = None
-
-        for segment_num in range(1, segment_count + 1):
-
-            segment_end = XY(
-                *[
-                    self_dimension + (delta_dimension * segment_num / segment_count)
-                    for self_dimension, delta_dimension in zip(self, delta)
-                ]
-            )
-
-            yield (segment_start, segment_end)
-            segment_start = segment_end
-
-
-@dataclasses.dataclass
-class Node:
-
-    unique_id: int
-    pos: XY = dataclasses.field(default_factory=XY, repr=True)
-    energy: float = 0
-    firing: bool = False
-    axon: typing.Optional["Nerve"] = None
-    output: int = 0
-    stimulation: int = 0
-
-    def __repr__(self):
-
-        return f"Node(id={self.unique_id} pos={self.pos}, energy={self.energy:3.2f}, firing={int(self.firing)}, axon={self.axon.myelin} -> {[target.unique_id for target in self.axon.target]})"
-
-    def __lt__(self, other):
-
-        return self.unique_id < other.unique_id
-
-    @property
-    def jsonable_state(self):
-
-        return {
-            "unique_id": self.unique_id,
-            "pos": list(self.pos),
-            "energy": self.energy,
-            "firing": int(self.firing),
-            "axon": self.axon.unique_id,
-            "output": self.output,
-            "stimulation": self.stimulation,
-        }
-
-
-@dataclasses.dataclass
-class Nerve:
-
-    unique_id: int
-    is_axon: bool = False
-    length: int = dataclasses.field(default_factory=lambda: rng.randint(1, 10))
-    source: typing.Optional[typing.Union[Node, "Nerve"]] = None
-    target: typing.List[typing.Union[Node, "Nerve"]] = dataclasses.field(
-        default_factory=list
-    )
-    myelin: Fiber = None
-    output: int = 0
-    stimulation: int = 0
-    pos: XY = dataclasses.field(default_factory=XY, repr=True)
-    weights: typing.List[float] = dataclasses.field(default_factory=list)
-    clock: float = 0
-
-    def __post_init__(self):
-
-        if self.myelin is None:
-
-            self.myelin = Fiber([0] * self.length, maxlen=self.length)
-
-        else:
-
-            self.length = self.myelin.maxlen
-
-    @property
-    def jsonable_state(self):
-
-        return {
-            "unique_id": self.unique_id,
-            "is_axon": self.is_axon,
-            "length": self.length,
-            "target": [t.unique_id for t in self.target],
-            "myelin": list(self.myelin),
-            "output": self.output,
-            "stimulation": self.stimulation,
-        }
-
-    def __repr__(self):
-
-        return f"Nerve(name={self.unique_id}. {self.myelin} targets={[t.unique_id for t in self.target]})"
-
 
 @dataclasses.dataclass
 class FreeEnergy:
+    """
+    Represents some spontaneous energy in the world which can be picked up by
+    nearby neurons. They have position and degrade over time.
+    """
 
     pos: XY = dataclasses.field(default_factory=XY, repr=True)
     mag: float = 1
@@ -164,6 +30,15 @@ class FreeEnergy:
 
 
 class Model:
+    """
+    The model represents the entire simulation, it is responsible for recording
+    and updating the state of all nodes and nerves. If we move to a Brain,
+    Body, World setup then it should hold all the state, and update it, but
+    `nodes` and `nevers` will be wrapped up in the `Brain` class.
+
+    Nodes and nerves must be added with `add_node` and `add_nerve`, which must
+    then be connected with calls to `attach`.
+    """
 
     free_energy_per_second = 20
     distance_decay = 2  # 2 = Inverse squared law
@@ -172,7 +47,7 @@ class Model:
     nerve_propogation_time = 1
     energy_stop_firing_threshold = 1
     energy_start_firing_threshold = 5
-    axon_inefficiency = 1
+    axon_efficiency = 1
 
     def __init__(self):
 
@@ -201,7 +76,7 @@ class Model:
                 energy_start_firing_threshold=Model.energy_start_firing_threshold,
                 energy_stop_firing_threshold=Model.energy_stop_firing_threshold,
                 neuron_output_per_second=Model.neuron_output_per_second,
-                axon_inefficiency=Model.axon_inefficiency,
+                axon_efficiency=Model.axon_efficiency,
             ),
             advance_nerves=functools.partial(
                 Model.generic_advance_nerves,
@@ -347,7 +222,7 @@ class Model:
         energy_start_firing_threshold,
         energy_stop_firing_threshold,
         neuron_output_per_second,
-        axon_inefficiency,
+        axon_efficiency,
     ):
 
         for node in nodes:
@@ -373,7 +248,7 @@ class Model:
 
                 node.output = min(neuron_output_per_second * dt, node.energy)
 
-                node.axon.stimulation += node.output * axon_inefficiency
+                node.axon.stimulation += node.output * axon_efficiency
 
                 # log.info("node axon stim: %s (dt=%s)", node.axon.stimulation, dt)
 

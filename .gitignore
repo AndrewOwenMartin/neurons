@@ -4,3 +4,4 @@ res/dear-pygui-examples/
 doc/campos2017.pdf
 doc/network.png
 doc/screenshots/
+__pycache__

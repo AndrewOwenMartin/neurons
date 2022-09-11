@@ -12,7 +12,7 @@ Run with `python -m neurons.gui`, also try `python -m unittest neurons.test_worl
 
 This is an attempt to combine Freeman's observations of real-time neurodynamics [1] with Campos and Froese's work in minimal cognition [2].
 
-Freeman describes a neural network as being defined less as a set of weights, but more as a set of steady states of activity in a dynamical phase space,each steady state effectively implementing a feed forward neural network appropriate for the current situation.
+Freeman describes a neural network as being defined less as a set of weights, but more as a set of steady states of activity in a dynamical phase space, each steady state effectively implementing a feed forward neural network appropriate for the current situation.
 In this sense stimulation performs the dual role of either inducing action, or inducing a change in the steady state such that the network is always attuned to the context.
 Campos and Froese, independent of Freeman, demonstrate that with a simple three-neuron real-time dynamic neural network that communication,representation and the adopting of roles, may emerge when two instances of the network with identical weights are allowed to interact in an environment.
 I believe that the algorithm investigated in my thesis, Stochastic Diffusion Search, is a suitable model for developing, modelling and analysing the real-time dynamics of such a system.
@@ -90,4 +90,31 @@ Then DPG allows me to get something like yesterday's GIF/WEBM in a couple of hou
 **discord_testpilot**: So, you’re not Kurzweil :laughing:
 
 **AndrewOwenMartin**: Put another way, if you want your calculator to also be good at composing poetry then it's going to get a bit poetic when doing arithmetic, which might not always be what you want.
-Put another way, if you manage to instill an AI with something that really acts like an artistic appreciation then it's not going to want to spend all its days doing your stupid **ing image recognition task. It'll want to learn the guitar or holiday in Italy.
+Put another way, if you manage to instill an AI with something that really acts like an artistic appreciation then it's not going to want to spend all its days doing your stupid \*\*\*\*ing image recognition task. It'll want to learn the guitar or holiday in Italy.
+
+# Introduction to the codebase
+
+The source code is layed out like this.
+
+Root directory
+- `doc` Documentation directory
+- `gen` Generated files directory
+- `neurons` Package Source code directory
+- `res` Static resources directory
+- `activate` Convenience script for activating the python virutal environment
+- `repl` Convenience script for setting up a Python REPL with some values imported.
+- `venv` The Python Virtual Environment directory
+- `MANIFEST.in` List of files that Python should include in the package other than just the source code.
+- `README.md` This file
+- `repl.py` Some Python code for setting up a REPL.
+- `setup.py` The package definition, used when compiling the package.
+
+Package directory
+- `neurons/neurons.conf` - Some config vars, override these values by putting a copy of this file in `~/config/neurons.conf`.
+- `neurons/__main__.py` - An entry point, allowing you to run the package like this `python -m neurons`
+- `neurons/test_world.py` - A simple test that the world can render.
+- `neurons/model.py`
+- `neurons/config.py`
+- `neurons/gui.py`
+- `neurons/test_model.py`
+- `neurons/world.py`
